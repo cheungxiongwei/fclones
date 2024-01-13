@@ -32,7 +32,7 @@ pub use dedupe::{
 pub use device::DiskDevices;
 pub use error::Error;
 pub use file::{FileHash, FileId, FileInfo, FileLen};
-pub use group::{group_files, write_report, FileGroup, FileSubGroup};
+pub use group::{group_files, write_report,write_report_to_string, FileGroup, FileSubGroup};
 pub use path::Path;
 
 const TIMESTAMP_FMT: &str = "%Y-%m-%d %H:%M:%S.%3f %z";

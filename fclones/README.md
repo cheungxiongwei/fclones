@@ -80,7 +80,47 @@ Copy-on-write file data deduplication (reflink) is not supported on Windows.
 Some optimisations are not available on platforms other than Linux:
   - ordering of file accesses by physical placement
   - page-cache drop-behind
-  
+
+## CAPI
+C api
+```c
+extern "C" {
+
+typedef void (*FnReportPointer)(const char *, int);
+
+void DuplicateFinder(const char *format, FnReportPointer cb);
+
+}
+```
+
+lib.rs
+```rust
+type FnReportPointer = fn(*const c_char, c_int);
+
+#[no_mangle]
+pub extern "C" fn DuplicateFinder(format: *mut c_char,cb: FnReportPointer) {
+    let format: &CStr = unsafe { CStr::from_ptr(format) };
+
+    let v : serde_json::Value  = serde_json::from_str(format.to_str().expect("CStr to Path Failed")).expect("json failed");
+   
+    // println!("{:?}",v["path"]);
+
+    let log: StdLog = StdLog::new();
+
+    let mut config = fclones::config::GroupConfig::default();
+    config.paths.push(fclones::Path::from(
+        v["path"].to_string()
+    ));
+
+    let groups = group_files(&config, &log).unwrap();
+    println!("Found {} groups: ", groups.len());
+
+    let result = fclones::write_report_to_string(&config, &groups);
+   
+    cb(result.as_ptr() as *const c_char,result.len() as c_int);
+}
+```
+
 ## Demo
 Let's first create some files:
 

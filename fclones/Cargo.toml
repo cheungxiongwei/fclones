@@ -12,7 +12,7 @@ readme = "README.md"
 edition = "2021"
 exclude = [
     ".circleci",
-    "release.sh"
+    "release.sh" 
 ]
 rust-version = "1.70"
 

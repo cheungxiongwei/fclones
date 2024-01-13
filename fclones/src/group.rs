@@ -9,8 +9,8 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
 use std::fs::File;
 use std::hash::Hash;
-use std::io;
 use std::io::BufWriter;
+use std::io;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1318,9 +1318,84 @@ pub fn write_report(
             let term = Term::stdout();
             let color = term.is_term();
             let mut reporter = ReportWriter::new(BufWriter::new(term), color);
+
             reporter.write(config.format, &header, groups.iter())
         }
     }
+}
+
+pub struct StringWriter {
+    data: String,
+}
+
+impl StringWriter {
+    fn new() -> Self {
+        StringWriter {
+            data: String::new(),
+        }
+    }
+
+    fn into_string(self) -> String {
+        self.data
+    }
+}
+
+impl std::io::Write for StringWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let s = match std::str::from_utf8(buf) {
+            Ok(s) => s,
+            Err(_) => return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid UTF-8")),
+        };
+
+        self.data.push_str(s);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+pub fn write_report_to_string(
+    config: &GroupConfig,
+    groups: &[FileGroup<FileInfo>],
+) -> String {
+    let now = Local::now();
+
+    let total_count = file_count(groups.iter());
+    let total_size = total_size(groups.iter());
+
+    let (redundant_count, redundant_size) = groups.iter().fold((0, FileLen(0)), |res, g| {
+        let count = g.redundant_count(&config.group_filter());
+        (res.0 + count, res.1 + g.file_len * count as u64)
+    });
+    let (missing_count, missing_size) = groups.iter().fold((0, FileLen(0)), |res, g| {
+        let count = g.missing_count(&config.group_filter());
+        (res.0 + count, res.1 + g.file_len * count as u64)
+    });
+
+    let header = ReportHeader {
+        timestamp: DateTime::from_naive_utc_and_offset(now.naive_utc(), *now.offset()),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        command: args_os().map(Arg::from).collect(),
+        base_dir: config.base_dir.clone(),
+        stats: Some(FileStats {
+            group_count: groups.len(),
+            total_file_count: total_count,
+            total_file_size: total_size,
+            redundant_file_count: redundant_count,
+            redundant_file_size: redundant_size,
+            missing_file_count: missing_count,
+            missing_file_size: missing_size,
+        }),
+    };
+
+    let mut buf = StringWriter::new();
+    let color = false;
+    let mut reporter = ReportWriter::new(&mut buf, color);
+    let _ = reporter.write(config.format, &header, groups.iter());
+    return String::from(buf.into_string());
+
 }
 
 #[cfg(test)]
