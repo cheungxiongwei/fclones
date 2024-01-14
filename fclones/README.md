@@ -84,40 +84,65 @@ Some optimisations are not available on platforms other than Linux:
 ## CAPI
 C api
 ```c
+#pragma once
+
 extern "C" {
 
-typedef void (*FnReportPointer)(const char *, int);
+typedef void (*FnReportPointer)(const char *, int,void*);
 
-void DuplicateFinder(const char *format, FnReportPointer cb);
+void DuplicateFinder(const char *format, FnReportPointer cb,void*);
 
 }
 ```
 
 lib.rs
 ```rust
-type FnReportPointer = fn(*const c_char, c_int);
+use fclones::{config::OutputFormat, group_files, log::StdLog, write_report_to_string};
+use std::ffi::{c_char, c_int, c_void, CStr, CString};
+
+type FnReportPointer = extern "C" fn(*const c_char, c_int, *mut c_void) -> c_void;
 
 #[no_mangle]
-pub extern "C" fn DuplicateFinder(format: *mut c_char,cb: FnReportPointer) {
+pub extern "C" fn DuplicateFinder(
+    format: *mut c_char,
+    report: FnReportPointer,
+    context: *mut c_void,
+) {
     let format: &CStr = unsafe { CStr::from_ptr(format) };
 
-    let v : serde_json::Value  = serde_json::from_str(format.to_str().expect("CStr to Path Failed")).expect("json failed");
-   
-    // println!("{:?}",v["path"]);
+    let json: serde_json::Value =
+        serde_json::from_str(format.to_str().expect("CStr to String Failed"))
+            .expect("Parse json failed");
+    let cstring: CString =
+        CString::new(json["path"].as_str().unwrap()).expect("Convert to CString failed");
 
     let log: StdLog = StdLog::new();
 
     let mut config = fclones::config::GroupConfig::default();
+    config.stdin = false;
+
     config.paths.push(fclones::Path::from(
-        v["path"].to_string()
+        cstring.to_str().expect("CString to Str failed"),
     ));
 
-    let groups = group_files(&config, &log).unwrap();
-    println!("Found {} groups: ", groups.len());
+    if json.get("format").is_some() {
+        config.format = match json["format"].as_str().expect("") {
+            "json" => OutputFormat::Json,
+            _ => OutputFormat::Default,
+        }
+    }
 
-    let result = fclones::write_report_to_string(&config, &groups);
-   
-    cb(result.as_ptr() as *const c_char,result.len() as c_int);
+    println!("config:{:?}", config);
+
+    let groups = group_files(&config, &log).unwrap();
+
+    let result = write_report_to_string(&config, &groups);
+
+    report(
+        result.as_ptr() as *const c_char,
+        result.len() as c_int,
+        context,
+    );
 }
 ```
 
